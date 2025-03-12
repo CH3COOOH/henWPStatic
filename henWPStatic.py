@@ -10,7 +10,6 @@ def convert_absolute_to_relative(content, base_domain, base_url, isHttps=True):
 		lines = content.splitlines()
 		for i, line in enumerate(lines):
 			if base_domain in line:
-				# lines[i] = line.replace(f"https://{base_domain}", '.').replace(f"http://{base_domain}", '.')
 				lines[i] = line.replace(f"https://{base_domain}/", '/').replace(f"http://{base_domain}/", '/')
 		return '\n'.join(lines)
 	else:
@@ -37,11 +36,8 @@ def convert_absolute_to_relative(content, base_domain, base_url, isHttps=True):
 				relative_path = relative_path.replace('\\', '/')
 				tag[attr] = relative_path
 		return str(soup)
-		# for tag in ['href', 'src', 'content']:
-		# 	head = tag + '=\"'
-		# 	content = content.replace(head+'https://'+base_domain, head)
-		# return content
 	return content
+
 
 class HWPSTC:
 	def __init__(self, homepage, sitemap, saveto):
@@ -49,6 +45,39 @@ class HWPSTC:
 		self.url_sitemap = sitemap
 		self.saveto = saveto
 		self.known_urls = []
+
+
+	def __url_parse(self, u):
+		parsed_url = urlparse(u)
+		path = parsed_url.path.lstrip('/')
+
+		## Create resource save path ----->>
+		_, ext = os.path.splitext(path)
+		if bool(ext) == True:
+			## It is a file, like "xxx.css"
+			file_name = os.path.basename(path)
+		else:
+		## It is just a path, like "xxx/xxx" or "xxx/xxx/"
+			file_name = ('index.html')
+			if len(path) > 0 and path[-1] != '/':
+			## "xxx/xxx", but web page
+				path += '/'
+		# <<-----
+
+		return {
+			'base': parsed_url.netloc,
+			'path': path,
+			'fname': file_name
+		}
+
+
+	def __mkdir_by_path(self, path):
+		## Create folders ----->>
+		folder_path = os.path.dirname(path)
+		local_folder = os.path.join(self.saveto, folder_path)
+		os.makedirs(local_folder, exist_ok=True)
+		# <<-----
+		return local_folder	
 
 
 	# -----------
@@ -59,7 +88,6 @@ class HWPSTC:
 		try:
 			response = requests.get(url)
 			response.raise_for_status()
-
 			return response.text
 		except requests.exceptions.RequestException as e:
 			print(f"Error fetching HTML from {url}: {e}")
@@ -72,10 +100,14 @@ class HWPSTC:
 	# -----------
 	def get_sitemap_urls(self, sitemap_url):
 		sitemap_html = self.get_html(sitemap_url)
+		if sitemap_html == None:
+			print('**HWPSTC::get_sitemap_urls failed...')
+			return []
 		soup = BeautifulSoup(sitemap_html, 'html.parser')
 		loc_tags = soup.find_all('loc')
 		urls = [loc.get_text() for loc in loc_tags]
 		return urls
+
 
 	# -----------
 	# name: get_res_urls(url)
@@ -113,49 +145,54 @@ class HWPSTC:
 
 
 	def save_res(self, u):
-		# Save the content of "u" into path that same as its URI
-		filter_list = ('.html', '.js', '.htm')
+
+		# parsed_url = urlparse(u)
+		# base_domain = parsed_url.netloc
+		# path = parsed_url.path.lstrip('/')
+
+		# ## Create resource save path ----->>
+		# _, ext = os.path.splitext(path)
+		# if bool(ext) == True:
+		# 	## It is a file, like "xxx.css"
+		# 	file_name = os.path.basename(path)
+		# else:
+		# ## It is just a path, like "xxx/xxx" or "xxx/xxx/"
+		# 	file_name = ('index.html')
+		# 	if len(path) > 0 and path[-1] != '/':
+		# 	## "xxx/xxx", but web page
+		# 		path += '/'
+		# # <<-----
+
+		parsed_url = self.__url_parse(u)
+		base_domain = parsed_url['base']
+		path = parsed_url['path']
+		file_name = parsed_url['fname']
+
 		try:
-			parsed_url = urlparse(u)
-			base_domain = parsed_url.netloc
-			path = parsed_url.path.lstrip('/')
-
-			## Create resource save path ----->>
-			_, ext = os.path.splitext(path)
-			if bool(ext) == True:
-				## It is a file, like "xxx.css"
-				file_name = os.path.basename(path)
-			else:
-			## It is just a path, like "xxx/xxx" or "xxx/xxx/"
-				file_name = ('index.html')
-				if len(path) > 0 and path[-1] != '/':
-					path += '/'
-			# <<-----
-
-			## Create folders ----->>
-			folder_path = os.path.dirname(path)
-			local_folder = os.path.join(self.saveto, folder_path)
-			os.makedirs(local_folder, exist_ok=True)
-			# <<-----
-
-			local_file_path = os.path.join(local_folder, file_name)
-
 			response = requests.get(u)
 			response.raise_for_status()
-			content = response.text if file_name.endswith(filter_list) else response.content
-			if file_name.endswith(filter_list):
-				content = convert_absolute_to_relative(content, base_domain, u)
-				with open(local_file_path, 'w', encoding='utf-8') as file:
-					file.write(content)
-			else:
-			## Save as bin, such as images
-				with open(local_file_path, 'wb') as file:
-					file.write(response.content)
-			self.known_urls.append(u)
-			return 0
 		except requests.exceptions.RequestException as e:
 			print(f"Error downloading {u}: {e}")
 			return -1
+
+
+		local_folder = self.__mkdir_by_path(path)
+		local_file_path = os.path.join(local_folder, file_name)
+
+		# Save the content of "u" into path that same as its URI
+		filter_list = ('.html', '.js', '.htm')
+
+		if file_name.endswith(filter_list):
+			content = convert_absolute_to_relative(response.text, base_domain, u)
+			with open(local_file_path, 'w', encoding='utf-8') as file:
+				file.write(content)
+		else:
+		## Save as bin, such as images
+			with open(local_file_path, 'wb') as file:
+				file.write(response.content)
+		self.known_urls.append(u)
+		return 0
+
 
 
 	def save_res_urls(self, urls):
@@ -165,31 +202,6 @@ class HWPSTC:
 				continue
 			print(f"Save {u}")
 			self.save_res(u)
-
-
-	# -----------
-	# name: url2Folder(url)
-	# function: parse "url", create folders whose structure are same as "url"'s relative path
-	# -----------
-	# def url2Folder(self, url):
-		# parsed_url = urlparse(url)
-		# path = parsed_url.path.lstrip('/')
-		# folder_path = os.path.dirname(path)
-		# folders = folder_path.split('/') if folder_path else []
-		# current_path = self.saveto
-		# for folder in folders:
-		# 	if folder:
-		# 		current_path = os.path.join(current_path, folder)
-		# 		os.makedirs(current_path, exist_ok=True)
-		# 		print(f"Create folder: {current_path}")
-		# return 0
-
-
-	# def save_res_articles(self, urls_article):
-	# 	for u in urls_article:
-	# 		self.url2Folder(u)
-	# 		u_res = self.get_res_urls(u)
-	# 		self.save_res(u_res)
 
 
 	# def make_tree(self, urls):
