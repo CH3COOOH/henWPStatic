@@ -145,24 +145,6 @@ class HWPSTC:
 
 
 	def save_res(self, u):
-
-		# parsed_url = urlparse(u)
-		# base_domain = parsed_url.netloc
-		# path = parsed_url.path.lstrip('/')
-
-		# ## Create resource save path ----->>
-		# _, ext = os.path.splitext(path)
-		# if bool(ext) == True:
-		# 	## It is a file, like "xxx.css"
-		# 	file_name = os.path.basename(path)
-		# else:
-		# ## It is just a path, like "xxx/xxx" or "xxx/xxx/"
-		# 	file_name = ('index.html')
-		# 	if len(path) > 0 and path[-1] != '/':
-		# 	## "xxx/xxx", but web page
-		# 		path += '/'
-		# # <<-----
-
 		parsed_url = self.__url_parse(u)
 		base_domain = parsed_url['base']
 		path = parsed_url['path']
@@ -174,7 +156,6 @@ class HWPSTC:
 		except requests.exceptions.RequestException as e:
 			print(f"Error downloading {u}: {e}")
 			return -1
-
 
 		local_folder = self.__mkdir_by_path(path)
 		local_file_path = os.path.join(local_folder, file_name)
@@ -192,7 +173,6 @@ class HWPSTC:
 				file.write(response.content)
 		self.known_urls.append(u)
 		return 0
-
 
 
 	def save_res_urls(self, urls):
@@ -223,11 +203,13 @@ class HWPSTC:
 		print(f"Found {len(urls_in_home)} URL(s) in Home.")
 		self.save_res_urls(urls_in_home)
 
+
 	def save_url_sitemap(self):
 		urls_in_sitemap = self.get_sitemap_urls(self.url_sitemap)
 		print(f"Found {len(urls_in_sitemap)} URL(s) in Sitemap.")
 		self.save_res_urls(urls_in_sitemap)
 		self.save_res(self.url_sitemap)
+
 
 	def save_pages(self):
 		p = 2
@@ -238,6 +220,7 @@ class HWPSTC:
 				break
 				p += 1
 			p += 1
+
 
 	def start(self):
 		self.save_homepage()
