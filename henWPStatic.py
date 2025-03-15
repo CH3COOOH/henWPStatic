@@ -204,11 +204,13 @@ class HWPSTC:
 		print(f"Found {len(urls_in_home)} URL(s) in Home.")
 		self.save_res_from_urls(urls_in_home)
 
+
 	def save_url_sitemap(self):
 		urls_in_sitemap = self.get_urls_from_sitemap(self.url_sitemap)
 		print(f"Found {len(urls_in_sitemap)} URL(s) in Sitemap.")
 		self.save_res_from_urls(urls_in_sitemap)
 		self.save_res_from_url(self.url_sitemap)
+
 
 	def save_pages(self):
 		p = 2
@@ -219,6 +221,7 @@ class HWPSTC:
 				break
 				p += 1
 			p += 1
+
 
 	def start(self):
 		self.save_homepage()
