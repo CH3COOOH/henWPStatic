@@ -1,6 +1,7 @@
 # -*- coding: UTF-8 -*-
 
 import os
+import json
 import requests
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
@@ -81,27 +82,30 @@ class HWPSTC:
 
 
 	# -----------
-	# name: get_html(url)
+	# name: get(url)
 	# function: get html sorce code from "url"
 	# -----------
-	def get_html(self, url):
+	def get(self, url, isText=True):
 		try:
 			response = requests.get(url)
 			response.raise_for_status()
-			return response.text
+			if isText == True:
+				return response.text
+			else:
+				return response.content
 		except requests.exceptions.RequestException as e:
 			print(f"Error fetching HTML from {url}: {e}")
 			return None
 
 
 	# -----------
-	# name: get_sitemap_urls(sitemap_html)
+	# name: get_urls_from_sitemap(sitemap_html)
 	# function: parse "sitemap_html", find url in "<loc>xxx</loc>", save "xxx" to a list
 	# -----------
-	def get_sitemap_urls(self, sitemap_url):
-		sitemap_html = self.get_html(sitemap_url)
+	def get_urls_from_sitemap(self, sitemap_url):
+		sitemap_html = self.get(sitemap_url)
 		if sitemap_html == None:
-			print('**HWPSTC::get_sitemap_urls failed...')
+			print('**HWPSTC::get_urls_from_sitemap failed...')
 			return []
 		soup = BeautifulSoup(sitemap_html, 'html.parser')
 		loc_tags = soup.find_all('loc')
@@ -116,7 +120,7 @@ class HWPSTC:
 	#  2. check each of the url. if it points to the resource of current site, save it into a list
 	# -----------
 	def get_res_urls(self, url):
-		response_text = self.get_html(url)
+		response_text = self.get(url)
 		if response_text == None:
 			return None
 
@@ -144,37 +148,11 @@ class HWPSTC:
 		return list(set(res_urls))
 
 
-	def save_res(self, u):
-
-		# parsed_url = urlparse(u)
-		# base_domain = parsed_url.netloc
-		# path = parsed_url.path.lstrip('/')
-
-		# ## Create resource save path ----->>
-		# _, ext = os.path.splitext(path)
-		# if bool(ext) == True:
-		# 	## It is a file, like "xxx.css"
-		# 	file_name = os.path.basename(path)
-		# else:
-		# ## It is just a path, like "xxx/xxx" or "xxx/xxx/"
-		# 	file_name = ('index.html')
-		# 	if len(path) > 0 and path[-1] != '/':
-		# 	## "xxx/xxx", but web page
-		# 		path += '/'
-		# # <<-----
-
+	def save_res_from_url(self, u):
 		parsed_url = self.__url_parse(u)
 		base_domain = parsed_url['base']
 		path = parsed_url['path']
 		file_name = parsed_url['fname']
-
-		try:
-			response = requests.get(u)
-			response.raise_for_status()
-		except requests.exceptions.RequestException as e:
-			print(f"Error downloading {u}: {e}")
-			return -1
-
 
 		local_folder = self.__mkdir_by_path(path)
 		local_file_path = os.path.join(local_folder, file_name)
@@ -182,26 +160,29 @@ class HWPSTC:
 		# Save the content of "u" into path that same as its URI
 		filter_list = ('.html', '.js', '.htm')
 
-		if file_name.endswith(filter_list):
-			content = convert_absolute_to_relative(response.text, base_domain, u)
-			with open(local_file_path, 'w', encoding='utf-8') as file:
-				file.write(content)
-		else:
-		## Save as bin, such as images
-			with open(local_file_path, 'wb') as file:
-				file.write(response.content)
-		self.known_urls.append(u)
+		try:
+			if file_name.endswith(filter_list):
+				content = convert_absolute_to_relative(self.get(u, isText=True), base_domain, u)
+				with open(local_file_path, 'w', encoding='utf-8') as file:
+					file.write(content)
+			else:
+			## Save as bin, such as images
+				with open(local_file_path, 'wb') as file:
+					file.write(self.get(u, isText=False))
+		except requests.exceptions.RequestException as e:
+			print(f"Error downloading {u}: {e}")
+			return -1
 		return 0
 
 
-
-	def save_res_urls(self, urls):
+	def save_res_from_urls(self, urls):
 		for u in urls:
 			if u in self.known_urls:
 				print(f"Skip known URL: {u}")
 				continue
 			print(f"Save {u}")
-			self.save_res(u)
+			self.save_res_from_url(u)
+			self.known_urls.append(u)
 
 
 	# def make_tree(self, urls):
@@ -218,29 +199,29 @@ class HWPSTC:
 
 
 	def save_homepage(self):
-		self.save_res(self.url_home)
+		self.save_res_from_url(self.url_home)
 		urls_in_home = self.get_res_urls(self.url_home)
 		print(f"Found {len(urls_in_home)} URL(s) in Home.")
-		self.save_res_urls(urls_in_home)
+		self.save_res_from_urls(urls_in_home)
 
 	def save_url_sitemap(self):
-		urls_in_sitemap = self.get_sitemap_urls(self.url_sitemap)
+		urls_in_sitemap = self.get_urls_from_sitemap(self.url_sitemap)
 		print(f"Found {len(urls_in_sitemap)} URL(s) in Sitemap.")
-		self.save_res_urls(urls_in_sitemap)
-		self.save_res(self.url_sitemap)
+		self.save_res_from_urls(urls_in_sitemap)
+		self.save_res_from_url(self.url_sitemap)
 
 	def save_pages(self):
 		p = 2
 		while True:
 			u = urljoin(self.url_home, '/page/%d/'%p)
 			print(u)
-			if self.save_res(u) == -1:
+			if self.save_res_from_url(u) == -1:
 				break
 				p += 1
 			p += 1
 
 	def start(self):
 		self.save_homepage()
-		# self.save_url_sitemap()
+		self.save_url_sitemap()
 		self.save_pages()
 
