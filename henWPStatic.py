@@ -46,15 +46,19 @@ def is_match_list(t, lst):
 
 
 class HWPSTC:
-	def __init__(self, homepage, sitemap, saveto):
+	def __init__(self, homepage, sitemap, saveto=None):
 		self.url_home = homepage
 		self.url_sitemap = urljoin(homepage, sitemap)
-		self.saveto = saveto
 		self.known_urls = []
 
 		self.this_base_domain = urlparse(homepage).netloc
 		self.known_fname = self.__known_fname(self.this_base_domain)
 		self.known_exclude_list = self.__known_exclude_list()
+
+		if saveto == None:
+			self.saveto = self.this_base_domain.replace(':', '_')
+		else:
+			self.saveto = saveto
 
 	def __known_exclude_list(self):
 		url_pages = r'^%s/\d+/$' % urljoin(self.url_home, 'page')
