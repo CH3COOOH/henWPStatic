@@ -5,7 +5,7 @@ import requests
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 
-def convert_absolute_to_relative(content, base_domain, base_url, isHttps=True):
+def convert_absolute_to_relative(content, base_domain, base_url):
 	if base_url.endswith('.js'):
 		lines = content.splitlines()
 		for i, line in enumerate(lines):
@@ -23,7 +23,6 @@ def convert_absolute_to_relative(content, base_domain, base_url, isHttps=True):
 				continue
 
 			resource_url = urljoin(base_url, tag[attr])
-			# print(f"**Change: {resource_url}")
 			uri = urlparse(resource_url).path
 			if uri == '':
 				uri = '/'
@@ -45,10 +44,11 @@ def is_match_list(t, lst):
 			return True
 	return False
 
+
 class HWPSTC:
 	def __init__(self, homepage, sitemap, saveto):
 		self.url_home = homepage
-		self.url_sitemap = sitemap
+		self.url_sitemap = urljoin(homepage, sitemap)
 		self.saveto = saveto
 		self.known_urls = []
 
@@ -105,7 +105,6 @@ class HWPSTC:
 			'path': path,
 			'fname': file_name
 		}
-
 
 	def __mkdir_by_path(self, path):
 		## Create folders ----->>
@@ -232,11 +231,13 @@ class HWPSTC:
 		self.save_res_from_urls(urls_in_home)
 
 
-	def save_url_sitemap(self):
+	def save_urls_in_sitemap(self):
+		self.save_res_from_url(self.url_sitemap)
+		self.save_res_from_url(urljoin(self.url_home, '/main-sitemap.xsl'))
+		## ^ Style file of the sitemap XML
 		urls_in_sitemap = self.get_urls_from_sitemap(self.url_sitemap)
 		print(f"Found {len(urls_in_sitemap)} URL(s) in Sitemap.")
 		self.save_res_from_urls(urls_in_sitemap)
-		self.save_res_from_url(self.url_sitemap)
 
 
 	def save_pages(self):
@@ -253,7 +254,7 @@ class HWPSTC:
 	def start(self):
 		self.load_known_urls()
 		self.save_homepage()
-		self.save_url_sitemap()
+		self.save_urls_in_sitemap()
 		self.save_pages()
 		self.dump_known_urls()
 
