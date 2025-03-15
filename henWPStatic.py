@@ -207,7 +207,7 @@ class HWPSTC:
 		found_urls = []
 		lines = response_text.splitlines()
 		for line in lines:
-			found_urls.extend(search_pattern(r'url\((/wp-content/.+?)\)', line))
+			found_urls.extend(search_pattern(r'url\((.*?\/wp-content\/.+?)\)', line))
 		# for i, line in enumerate(lines):
 		# 	found_urls.extend(search_pattern(r'src:url\((.+?)\)', line[i]))
 		return list(map(self.__url_2Abs, found_urls))
