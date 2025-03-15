@@ -44,6 +44,10 @@ def is_match_list(t, lst):
 			return True
 	return False
 
+def search_pattern(rtext, full_text):
+	matches = re.findall(rtext, full_text)
+	return matches
+
 
 class HWPSTC:
 	def __init__(self, homepage, sitemap, saveto=None):
@@ -186,6 +190,29 @@ class HWPSTC:
 		return list(set(res_urls))
 
 
+	def __is_this_src(self, src_url):
+		return urlparse(src_url).netloc == self.this_base_domain
+
+
+	def __url_2Abs(self, u):
+		if is_match_list(u, [r'%s/.+' % self.url_home]) == False:
+			return urljoin(self.url_home, u)
+		return u
+
+
+	def get_res_urls_css(self, css_url):
+		response_text = self.get(css_url)
+		if response_text == None:
+			return None
+		found_urls = []
+		lines = response_text.splitlines()
+		for line in lines:
+			found_urls.extend(search_pattern(r'url\((/wp-content/.+?)\)', line))
+		# for i, line in enumerate(lines):
+		# 	found_urls.extend(search_pattern(r'src:url\((.+?)\)', line[i]))
+		return list(map(self.__url_2Abs, found_urls))
+
+
 	def save_res_from_url(self, u):
 		parsed_url = self.__url_parse(u)
 		base_domain = parsed_url['base']
@@ -196,14 +223,19 @@ class HWPSTC:
 		local_file_path = os.path.join(local_folder, file_name)
 
 		# Save the content of "u" into path that same as its URI
-		filter_list = ('.html', '.js', '.htm')
+		filter_list = ('.html', '.js', '.htm', '.css')
 
 		if file_name.endswith(filter_list):
 			_buf = self.get(u, isText=True)
 			if _buf == None:
 				print(f"Error downloading {u}")
 				return -1
-			content = convert_absolute_to_relative(_buf, base_domain, u)
+			if file_name.endswith('.css'):
+				content = _buf
+				src_in_css = self.get_res_urls_css(u)
+				self.save_res_from_urls(src_in_css)
+			else:
+				content = convert_absolute_to_relative(_buf, base_domain, u)
 			with open(local_file_path, 'w', encoding='utf-8') as file:
 				file.write(content)
 		else:
