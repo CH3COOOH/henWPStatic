@@ -1,7 +1,6 @@
 # -*- coding: UTF-8 -*-
-
+import re
 import os
-import json
 import requests
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
@@ -22,7 +21,7 @@ def convert_absolute_to_relative(content, base_domain, base_url, isHttps=True):
 				attr = 'src'
 			else:
 				continue
-			
+
 			resource_url = urljoin(base_url, tag[attr])
 			# print(f"**Change: {resource_url}")
 			uri = urlparse(resource_url).path
@@ -39,6 +38,12 @@ def convert_absolute_to_relative(content, base_domain, base_url, isHttps=True):
 		return str(soup)
 	return content
 
+def is_match_list(t, lst):
+	for p in lst:
+		match = re.match(p, t)
+		if match:
+			return True
+	return False
 
 class HWPSTC:
 	def __init__(self, homepage, sitemap, saveto):
@@ -47,6 +52,36 @@ class HWPSTC:
 		self.saveto = saveto
 		self.known_urls = []
 
+		self.this_base_domain = urlparse(homepage).netloc
+		self.known_fname = self.__known_fname(self.this_base_domain)
+		self.known_exclude_list = self.__known_exclude_list()
+
+	def __known_exclude_list(self):
+		url_pages = r'^%s/\d+/$' % urljoin(self.url_home, 'page')
+		url_home = r'^%s$' %  self.url_home
+		return [url_pages, url_home]
+
+	def __known_fname(self, base_name):
+		return base_name.replace(':', '_') + '.known'
+
+	def dump_known_urls(self):
+		known_urls_dump = list(filter(lambda u: is_match_list(u, self.known_exclude_list) == False, self.known_urls))
+		with open(self.known_fname, 'w') as o:
+			o.write('\n'.join(known_urls_dump))
+		return 0
+
+	def load_known_urls(self):
+		if os.path.exists(self.known_fname) == False:
+			return -1
+		print('Try to load [%s]...' % self.known_fname)
+		with open(self.known_fname, 'r') as o:
+			_buf = o.read()
+		for u in _buf.split('\n'):
+			if u == '':
+				continue
+			self.known_urls.append(u)
+		print('%d known URLs loaded!' % len(self.known_urls))
+		return 0
 
 	def __url_parse(self, u):
 		parsed_url = urlparse(u)
@@ -125,24 +160,24 @@ class HWPSTC:
 			return None
 
 		soup = BeautifulSoup(response_text, 'html.parser')
-		parsed_url = urlparse(url)
-		base_domain = parsed_url.netloc
+		# parsed_url = urlparse(url)
+		# base_domain = parsed_url.netloc
 		res_urls = []
 
 		for tag in soup.find_all(href=True):
 			resource_url = urljoin(url, tag['href'])
-			if urlparse(resource_url).netloc == base_domain:
+			if urlparse(resource_url).netloc == self.this_base_domain:
 				res_urls.append(resource_url)
 		
 		for tag in soup.find_all(src=True):
 			resource_url = urljoin(url, tag['src'])
-			if urlparse(resource_url).netloc == base_domain:
+			if urlparse(resource_url).netloc == self.this_base_domain:
 				res_urls.append(resource_url)
 		
 		for tag in soup.find_all('meta', content=True):
 			if 'url' in tag.get('property', '').lower() or 'url' in tag.get('name', '').lower():
 				resource_url = urljoin(url, tag['content'])
-				if urlparse(resource_url).netloc == base_domain:
+				if urlparse(resource_url).netloc == self.this_base_domain:
 					res_urls.append(resource_url)
 
 		return list(set(res_urls))
@@ -160,42 +195,34 @@ class HWPSTC:
 		# Save the content of "u" into path that same as its URI
 		filter_list = ('.html', '.js', '.htm')
 
-		try:
-			if file_name.endswith(filter_list):
-				content = convert_absolute_to_relative(self.get(u, isText=True), base_domain, u)
-				with open(local_file_path, 'w', encoding='utf-8') as file:
-					file.write(content)
-			else:
-			## Save as bin, such as images
-				with open(local_file_path, 'wb') as file:
-					file.write(self.get(u, isText=False))
-		except requests.exceptions.RequestException as e:
-			print(f"Error downloading {u}: {e}")
-			return -1
+		if file_name.endswith(filter_list):
+			_buf = self.get(u, isText=True)
+			if _buf == None:
+				print(f"Error downloading {u}")
+				return -1
+			content = convert_absolute_to_relative(_buf, base_domain, u)
+			with open(local_file_path, 'w', encoding='utf-8') as file:
+				file.write(content)
+		else:
+		## Save as bin, such as images
+			_buf = self.get(u, isText=False)
+			if _buf == None:
+				print(f"Error downloading {u}")
+				return -1
+			with open(local_file_path, 'wb') as file:
+				file.write(_buf)
 		return 0
 
 
-	def save_res_from_urls(self, urls):
+	def save_res_from_urls(self, urls, add_known=True):
 		for u in urls:
 			if u in self.known_urls:
 				print(f"Skip known URL: {u}")
 				continue
 			print(f"Save {u}")
 			self.save_res_from_url(u)
-			self.known_urls.append(u)
-
-
-	# def make_tree(self, urls):
-	# 	for u in urls:
-	# 		if u in self.known_urls:
-	# 			print(f"Known URL: {u}...")
-	# 			continue
-	# 		print(f"Dig in {u}...")
-	# 		self.known_urls.append(u)
-	# 		res_urls = self.get_res_urls(u)
-	# 		if res_urls == None:
-	# 			continue
-	# 		self.make_tree(res_urls)
+			if add_known:
+				self.known_urls.append(u)
 
 
 	def save_homepage(self):
@@ -224,7 +251,9 @@ class HWPSTC:
 
 
 	def start(self):
+		self.load_known_urls()
 		self.save_homepage()
 		self.save_url_sitemap()
 		self.save_pages()
+		self.dump_known_urls()
 
