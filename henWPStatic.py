@@ -6,15 +6,21 @@ from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 
 def convert_absolute_to_relative(content, base_domain, base_url):
-	if base_url.endswith('.js'):
+	if base_url.endswith(('.js', '.css')):
 		lines = content.splitlines()
 		for i, line in enumerate(lines):
 			if base_domain in line:
 				lines[i] = line.replace(f"https://{base_domain}/", '/').replace(f"http://{base_domain}/", '/')
 		return '\n'.join(lines)
 	else:
+		print(f"CA2R: Analyzing {base_url}, seems like a HTML")
 		soup = BeautifulSoup(content, 'html.parser')
-		for tag in soup.find_all(['a', 'img', 'script', 'link'], href=True):
+
+		href_tags = soup.find_all(['a', 'link'], href=True)
+		src_tags = soup.find_all(['img', 'script'], src=True)
+		all_tags = href_tags + src_tags
+
+		for tag in all_tags:
 			if tag.name == 'a' or tag.name == 'link':
 				attr = 'href'
 			elif tag.name == 'img' or tag.name == 'script':
@@ -28,12 +34,11 @@ def convert_absolute_to_relative(content, base_domain, base_url):
 				uri = '/'
 
 			if urlparse(resource_url).netloc == base_domain:
-				relative_path = os.path.relpath(
-					uri,
-					start=os.path.dirname(urlparse(base_url).path)
-				)
-				relative_path = relative_path.replace('\\', '/')
-				tag[attr] = relative_path
+				# print(f"CA2R: Translate ({attr}){resource_url} -> {uri}")
+				tag[attr] = uri
+				if tag.has_attr('srcset'):
+					tag.attrs.pop('srcset')
+					print(f" + CA2R: Remove srcset attr for {resource_url}")
 		return str(soup)
 	return content
 
@@ -50,9 +55,10 @@ def search_pattern(rtext, full_text):
 
 
 class HWPSTC:
-	def __init__(self, homepage, sitemap, saveto=None):
+	def __init__(self, homepage, sitemap, saveto=None, dig=False):
 		self.url_home = homepage
 		self.url_sitemap = urljoin(homepage, sitemap)
+		self.dig = dig
 		self.known_urls = []
 
 		self.this_base_domain = urlparse(homepage).netloc
@@ -92,6 +98,8 @@ class HWPSTC:
 		return 0
 
 	def __url_parse(self, u):
+		if '?' in u:
+			return -1
 		parsed_url = urlparse(u)
 		path = parsed_url.path.lstrip('/')
 
@@ -161,7 +169,7 @@ class HWPSTC:
 	#  1. parse html of "url", look for urls in the html page
 	#  2. check each of the url. if it points to the resource of current site, save it into a list
 	# -----------
-	def get_res_urls(self, url):
+	def get_res_urls(self, url, ext_filter=None):
 		response_text = self.get(url)
 		if response_text == None:
 			return None
@@ -187,6 +195,9 @@ class HWPSTC:
 				if urlparse(resource_url).netloc == self.this_base_domain:
 					res_urls.append(resource_url)
 
+		res_urls = list(set(res_urls))
+		if ext_filter != None:
+			res_urls = list(filter(lambda u: u.lower().endswith(ext_filter), res_urls))
 		return list(set(res_urls))
 
 
@@ -213,29 +224,35 @@ class HWPSTC:
 		return list(map(self.__url_2Abs, found_urls))
 
 
-	def save_res_from_url(self, u):
+	def save_res_from_url(self, u, dig=False):
+		print(f"Save {u}")
 		parsed_url = self.__url_parse(u)
+		if parsed_url == -1:
+			print(f"Skip URL: {u}")
+			return -1
 		base_domain = parsed_url['base']
 		path = parsed_url['path']
-		file_name = parsed_url['fname']
+		save_name = parsed_url['fname']
 
 		local_folder = self.__mkdir_by_path(path)
-		local_file_path = os.path.join(local_folder, file_name)
+		local_file_path = os.path.join(local_folder, save_name)
+		print(f" -> {local_file_path}")
 
 		# Save the content of "u" into path that same as its URI
 		filter_list = ('.html', '.js', '.htm', '.css')
 
-		if file_name.endswith(filter_list):
+		if save_name.endswith(filter_list):
 			_buf = self.get(u, isText=True)
 			if _buf == None:
 				print(f"Error downloading {u}")
 				return -1
-			if file_name.endswith('.css'):
-				content = _buf
+
+			## Fetch URLs in CSS files, like *.woff
+			if save_name.endswith('.css'):
 				src_in_css = self.get_res_urls_css(u)
 				self.save_res_from_urls(src_in_css)
-			else:
-				content = convert_absolute_to_relative(_buf, base_domain, u)
+
+			content = convert_absolute_to_relative(_buf, base_domain, u)
 			with open(local_file_path, 'w', encoding='utf-8') as file:
 				file.write(content)
 		else:
@@ -246,41 +263,48 @@ class HWPSTC:
 				return -1
 			with open(local_file_path, 'wb') as file:
 				file.write(_buf)
+		if dig == True and save_name.endswith(('.html', '.htm')):
+			print(f"+ Now dig into {u}")
+			self.save_res_from_urls(self.get_res_urls(u, ext_filter=('.jpg', '.gif', '.png')))
 		return 0
 
 
-	def save_res_from_urls(self, urls, add_known=True):
+	def save_res_from_urls(self, urls, add_as_known=True, dig=False):
 		for u in urls:
 			if u in self.known_urls:
-				print(f"Skip known URL: {u}")
+				print(f"Skip known: {u}")
 				continue
-			print(f"Save {u}")
-			self.save_res_from_url(u)
-			if add_known:
+			self.save_res_from_url(u, dig=dig)
+			if add_as_known:
 				self.known_urls.append(u)
 
 
 	def save_homepage(self):
+		print(f"Save homepage")
 		self.save_res_from_url(self.url_home)
+
 		urls_in_home = self.get_res_urls(self.url_home)
-		print(f"Found {len(urls_in_home)} URL(s) in Home.")
-		self.save_res_from_urls(urls_in_home)
+		print(f"Found {len(urls_in_home)} URL(s) in Home")
+		self.save_res_from_urls(urls_in_home, dig=self.dig)
 
 
 	def save_urls_in_sitemap(self):
+		## Save sitemap itself
 		self.save_res_from_url(self.url_sitemap)
 		self.save_res_from_url(urljoin(self.url_home, '/main-sitemap.xsl'))
 		## ^ Style file of the sitemap XML
+
+		## Save urls in sitemap
 		urls_in_sitemap = self.get_urls_from_sitemap(self.url_sitemap)
 		print(f"Found {len(urls_in_sitemap)} URL(s) in Sitemap.")
-		self.save_res_from_urls(urls_in_sitemap)
+		self.save_res_from_urls(urls_in_sitemap, dig=self.dig)
 
 
 	def save_pages(self):
 		p = 2
 		while True:
 			u = urljoin(self.url_home, '/page/%d/'%p)
-			print(u)
+			# print(u)
 			if self.save_res_from_url(u) == -1:
 				break
 				p += 1
